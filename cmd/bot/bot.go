@@ -1,9 +1,9 @@
 package bot
 
 import (
+	"fmt"
 	"log"
-	"math/rand"
-	"strings"
+	"strconv"
 	"time"
 	"upgrade/internal/models"
 
@@ -13,36 +13,13 @@ import (
 type UpgradeBot struct {
 	Bot   *telebot.Bot
 	Users *models.UserModel
-}
-
-var gameItems = [3]string{
-	"камень",
-	"ножницы",
-	"бумага",
-}
-
-var winSticker = &telebot.Sticker{
-	File: telebot.File{
-		FileID: "CAACAgIAAxkBAAEGMEZjVspD4JulorxoH7nIwco5PGoCsAACJwADr8ZRGpVmnh4Ye-0RKgQ",
-	},
-	Width:    512,
-	Height:   512,
-	Animated: true,
-}
-
-var loseSticker = &telebot.Sticker{
-	File: telebot.File{
-		FileID: "CAACAgIAAxkBAAEGMEhjVsqoRriJRO_d-hrqguHNlLyLvQACogADFkJrCuweM-Hw5ackKgQ",
-	},
-	Width:    512,
-	Height:   512,
-	Animated: true,
+	Tasks *models.TaskModel
 }
 
 func (bot *UpgradeBot) StartHandler(ctx telebot.Context) error {
 	newUser := models.User{
 		Name:       ctx.Sender().Username,
-		TelegramId: ctx.Chat().ID,
+		TelegramId: ctx.Sender().ID,
 		FirstName:  ctx.Sender().FirstName,
 		LastName:   ctx.Sender().LastName,
 		ChatId:     ctx.Chat().ID,
@@ -63,71 +40,67 @@ func (bot *UpgradeBot) StartHandler(ctx telebot.Context) error {
 	}
 
 	return ctx.Send("Привет, " + ctx.Sender().FirstName)
+
 }
 
-func (bot *UpgradeBot) GameHandler(ctx telebot.Context) error {
-	return ctx.Send("Сыграем в камень-ножницы-бумага " +
-		"Введи твой вариант в формате /try камень")
+func (bot *UpgradeBot) HelpHandler(ctx telebot.Context) error {
+	return ctx.Send("Введи данные о задаче в следующем виде: /название, описание, дедлайн(гггг-мм-дд)")
 }
 
-func (bot *UpgradeBot) TryHandler(ctx telebot.Context) error {
-	attempts := ctx.Args()
-
-	if len(attempts) == 0 {
-		return ctx.Send("Вы не ввели ваш вариант")
+func (bot *UpgradeBot) NewTaskHandler(ctx telebot.Context) error {
+	attempts := ctx.Text()
+	newTask := models.Task{
+		Title:       string(attempts[0]),
+		Description: string(attempts[1]),
+		EndDate:     int64(attempts[2]),
+		TelegramId:  ctx.Chat().ID,
 	}
-
-	if len(attempts) > 1 {
-		return ctx.Send("Вы ввели больше одного варианта")
+	err := bot.Tasks.CreateTask(newTask)
+	if err != nil {
+		log.Printf("Ошибка создания задачи %v", err)
 	}
+	return ctx.Send("Задача успешно добавлена, ")
+}
 
-	try := strings.ToLower(attempts[0])
-	botTry := gameItems[rand.Intn(len(gameItems))]
+func (bot *UpgradeBot) ShowTaskHandler(ctx telebot.Context) error {
+	users, err := bot.Users.GetAll()
+	if err != nil {
+		return ctx.Send("Error: ", err.Error())
+	}
+	var tasksMsg string
 
-	if botTry == "камень" {
-		switch try {
-		case "ножницы":
-			ctx.Send(loseSticker)
-			ctx.Send("🪨")
-			return ctx.Send("Камень! Ты проиграл!")
-		case "бумага":
-			ctx.Send(winSticker)
-			ctx.Send("🪨")
-			return ctx.Send("Камень! Ты выиграл!")
+	for _, user := range users {
+		if user.ChatId == ctx.Chat().ID {
+			for _, task := range user.Tasks {
+				tasksMsg += fmt.Sprintf("Title: %v\nDescription: %v\nDeadline: %v\n",
+					task.Title, task.Description, task.EndDate)
+			}
 		}
 	}
 
-	if botTry == "ножницы" {
-		switch try {
-		case "камень":
-			ctx.Send(winSticker)
-			ctx.Send("✂️")
-			return ctx.Send("Ножницы! Ты выиграл!")
-		case "бумага":
-			ctx.Send(loseSticker)
-			ctx.Send("✂️")
-			return ctx.Send("Ножницы! Ты проиграл!")
-		}
+	if tasksMsg == "" {
+		return ctx.Send("Задачи не найдены")
 	}
+	return ctx.Send(tasksMsg)
+}
 
-	if botTry == "бумага" {
-		switch try {
-		case "ножницы":
-			ctx.Send(winSticker)
-			ctx.Send("📃")
-			return ctx.Send("Бумага! Ты выиграл!")
-		case "камень":
-			ctx.Send(loseSticker)
-			ctx.Send("📃")
-			return ctx.Send("Бумага! Ты проиграл!")
-		}
+func (bot *UpgradeBot) DeleteTaskHandler(ctx telebot.Context) error {
+	arg := ctx.Args()
+	if len(arg) == 0 {
+		return ctx.Send("Укажи id задачи")
 	}
-
-	if botTry == try {
-		return ctx.Send("Ничья!")
+	if len(arg) > 1 {
+		return ctx.Send("Укажи один id задачи")
 	}
-
-	return ctx.Send("Кажется вы ввели неверный вариант!")
+	id, err := strconv.Atoi(arg[0])
+	if err != nil {
+		return ctx.Send("Некорректный id задачи")
+	}
+	err = bot.Tasks.DeleteTask(id)
+	if err != nil {
+		return ctx.Send("Ошибка удаления")
+	}
+	return ctx.Send("Задача успешно удалена")
 }
 
 func InitBot(token string) *telebot.Bot {
@@ -135,12 +108,9 @@ func InitBot(token string) *telebot.Bot {
 		Token:  token,
 		Poller: &telebot.LongPoller{Timeout: 10 * time.Second},
 	}
-
 	b, err := telebot.NewBot(pref)
-
 	if err != nil {
 		log.Fatalf("Ошибка при инициализации бота %v", err)
 	}
-
 	return b
 }

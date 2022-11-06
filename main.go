@@ -18,7 +18,7 @@ type Config struct {
 }
 
 func main() {
-	configPath := flag.String("config", "", "Path to config file")
+	configPath := flag.String("config", "config/local.toml", "Path to config file")
 	flag.Parse()
 
 	cfg := &Config{}
@@ -37,11 +37,13 @@ func main() {
 	upgradeBot := bot.UpgradeBot{
 		Bot:   bot.InitBot(cfg.BotToken),
 		Users: &models.UserModel{Db: db},
+		Tasks: &models.TaskModel{Db: db},
 	}
 
 	upgradeBot.Bot.Handle("/start", upgradeBot.StartHandler)
-	upgradeBot.Bot.Handle("/game", upgradeBot.GameHandler)
-	upgradeBot.Bot.Handle("/try", upgradeBot.TryHandler)
-
+	upgradeBot.Bot.Handle("/help", upgradeBot.HelpHandler)
+	upgradeBot.Bot.Handle("/showTask", upgradeBot.ShowTaskHandler)
+	upgradeBot.Bot.Handle("/newTask", upgradeBot.NewTaskHandler)
+	upgradeBot.Bot.Handle("/deleteTask", upgradeBot.DeleteTaskHandler)
 	upgradeBot.Bot.Start()
 }
