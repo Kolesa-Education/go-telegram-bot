@@ -1,6 +1,8 @@
 package models
 
-import "gorm.io/gorm"
+import (
+	"gorm.io/gorm"
+)
 
 type User struct {
 	gorm.Model
@@ -9,6 +11,7 @@ type User struct {
 	FirstName  string `json:"first_name"`
 	LastName   string `json:"last_name"`
 	ChatId     int64  `json:"chat_id"`
+	Tasks      []ToDo
 }
 
 type UserModel struct {
@@ -32,4 +35,13 @@ func (m *UserModel) FindOne(telegramId int64) (*User, error) {
 	}
 
 	return &existUser, nil
-}
+ }
+
+ func (r *UserModel) FindAllTasks(user User) ([]ToDo, error) {
+	var tasks []ToDo
+	if err := r.Db.Model(&user).Association("ToDos").Find(&tasks); err != nil {
+		return nil, err
+	}
+
+	return tasks, nil
+ }
